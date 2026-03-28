@@ -11,7 +11,7 @@ Gmail Inbox
     │
     ▼
 Google Apps Script (trigger every 2 min)
-    │  GmailApp.search("is:unread -label:scanned")
+    │  Search for unread emails without any classification label
     │
     ▼
 For each unprocessed thread:
@@ -22,10 +22,10 @@ Claude API (Haiku 4.5)
     │  Returns: JSON array of labels
     │
     ▼
-Apply Gmail labels + mark as scanned
+Apply Gmail labels
 ```
 
-Every 2 minutes, the agent finds unread emails that haven't been classified yet, sends the metadata to Claude Haiku, and applies the returned labels. A `scanned` label prevents re-processing.
+Every 2 minutes, the agent finds unread emails that don't already have a classification label, sends the metadata to Claude Haiku, and applies the returned labels. Every email gets at least one label (`other` as a fallback), so processed emails are never re-scanned.
 
 ## Labels
 
@@ -42,6 +42,7 @@ Every 2 minutes, the agent finds unread emails that haven't been classified yet,
 | `marketing` | Unsolicited promotional content |
 | `notification` | Automated system alerts |
 | `estimates` | Quotes, bids, or proposals from vendors |
+| `other` | Does not fit any of the above categories |
 
 Each label is color-coded in Gmail automatically.
 

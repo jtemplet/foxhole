@@ -8,9 +8,9 @@ const MODEL = 'claude-haiku-4-5-20251001';
 const LABEL_PREFIX = '';
 const VALID_LABELS = [
   'urgent', 'action needed', 'follow-up', 'meeting', 'awaiting-reply',
-  'payment', 'info', 'newsletter', 'marketing', 'notification', 'estimates'
+  'payment', 'info', 'newsletter', 'marketing', 'notification', 'estimates',
+  'other'
 ];
-const SCANNED_LABEL = LABEL_PREFIX + 'scanned';
 const MAX_BODY_LENGTH = 500;
 
 /**
@@ -27,8 +27,8 @@ function classifyNewEmails() {
   // Ensure all labels exist
   ensureLabelsExist();
 
-  const scannedLabel = GmailApp.getUserLabelByName(SCANNED_LABEL);
-  const threads = GmailApp.search('is:unread -label:' + SCANNED_LABEL, 0, 20);
+  const excludes = VALID_LABELS.map(l => '-label:' + l.replace(/\s+/g, '-')).join(' ');
+  const threads = GmailApp.search('is:unread ' + excludes, 0, 20);
 
   if (threads.length === 0) {
     console.log('No new unread emails to classify.');
@@ -51,9 +51,6 @@ function classifyNewEmails() {
       const labels = callClaude(apiKey, emailData);
       applyLabels(thread, labels);
 
-      // Mark as processed
-      thread.addLabel(scannedLabel);
-
       console.log('Classified: "' + emailData.subject + '" → [' + labels.join(', ') + ']');
 
     } catch (error) {
@@ -70,7 +67,7 @@ function classifyNewEmails() {
 function callClaude(apiKey, emailData) {
   const systemPrompt = `You are an email classifier. Given the email metadata below, assign 1-2 labels from this exact list:
 
-  urgent, action needed, follow-up, meeting, awaiting-reply, payment, fyi, newsletter, marketing, notification
+  urgent, action needed, follow-up, meeting, awaiting-reply, payment, info, newsletter, marketing, notification, estimates, other
 
   Respond with ONLY a JSON array of label strings. No explanation, no markdown.
   Example: ["action needed", "payment"]
@@ -88,9 +85,11 @@ function callClaude(apiKey, emailData) {
   - "marketing": Unsolicited promotional content — sales outreach, product announcements, cold emails, discount offers.
   - "notification": Automated system alerts — GitHub, CI/CD, shipping tracking, app alerts, password resets.
   - "estimates": Quotes, bids, estimates, or proposals from contractors, vendors, or service providers for project work.
+  - "other": Use when the email does not clearly fit any of the above categories.
 
   When in doubt between two labels, prefer the more actionable one.
-  An email can have at most 2 labels. Most emails should have exactly 1.`;
+  An email can have at most 2 labels. Most emails should have exactly 1.
+  Every email MUST receive at least one label.`;
 
   const userMessage = `From: ${emailData.from}\nSubject: ${emailData.subject}\nPreview: ${emailData.body}`;
 
@@ -136,10 +135,12 @@ function callClaude(apiKey, emailData) {
     }
   }
 
-  // Validate labels
-  return labels
+  // Validate labels, fall back to "other" if none survive filtering
+  const validated = labels
     .filter(label => VALID_LABELS.includes(label))
     .slice(0, 2);
+
+  return validated.length > 0 ? validated : ['other'];
 }
 
 /**
@@ -172,9 +173,10 @@ function ensureLabelsExist() {
       'marketing':      { textColor: '#ffffff', backgroundColor: '#e07798' },
       'notification':   { textColor: '#ffffff', backgroundColor: '#b6cff5' },
       'estimates':      { textColor: '#ffffff', backgroundColor: '#16a766' },
+      'other':          { textColor: '#ffffff', backgroundColor: '#c2c2c2' },
     };
 
-    const allLabelNames = VALID_LABELS.map(l => LABEL_PREFIX + l).concat([SCANNED_LABEL]);
+    const allLabelNames = VALID_LABELS.map(l => LABEL_PREFIX + l);
     const existingLabels = Gmail.Users.Labels.list('me').labels;
     const existingNames = new Set(existingLabels.map(l => l.name));
 
