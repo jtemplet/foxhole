@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "foxhole",
+  "project_id": "723678bc-a8db-42a0-bcb4-55cf7959cfd0"
+}
