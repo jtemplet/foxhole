@@ -12,6 +12,8 @@ const VALID_LABELS = [
   'other'
 ];
 const MAX_BODY_LENGTH = 500;
+const CACHE_THRESHOLD = 5;
+const CACHE_KEY = 'SENDER_CACHE';
 
 /**
  * Main entry point — called by time-driven trigger every 2 minutes.
@@ -48,10 +50,20 @@ function classifyNewEmails() {
         body: (latest.getPlainBody() || '').substring(0, MAX_BODY_LENGTH)
       };
 
-      const labels = callClaude(apiKey, emailData);
-      applyLabels(thread, labels);
+      const senderEmail = extractEmail(emailData.from);
+      const cached = getCachedLabels(senderEmail);
 
-      console.log('Classified: "' + emailData.subject + '" → [' + labels.join(', ') + ']');
+      let labels;
+      if (cached) {
+        labels = cached;
+        console.log('Cache hit: "' + emailData.subject + '" (' + senderEmail + ') → [' + labels.join(', ') + ']');
+      } else {
+        labels = callClaude(apiKey, emailData);
+        updateSenderCache(senderEmail, labels);
+        console.log('Classified: "' + emailData.subject + '" → [' + labels.join(', ') + ']');
+      }
+
+      applyLabels(thread, labels);
 
     } catch (error) {
       console.error('Error classifying thread "' + thread.getFirstMessageSubject() + '": ' + error.message);
@@ -206,6 +218,88 @@ function ensureLabelsExist() {
       }
     }
   }
+
+// ============================================================
+// Sender Cache
+// ============================================================
+
+/**
+ * Extracts the email address from a "Display Name <email>" string.
+ */
+function extractEmail(fromField) {
+  const match = fromField.match(/<([^>]+)>/);
+  return (match ? match[1] : fromField).toLowerCase().trim();
+}
+
+/**
+ * Returns cached labels for a sender if the cache has enough confidence,
+ * or null if the sender isn't cached or hasn't hit the threshold yet.
+ */
+function getCachedLabels(senderEmail) {
+  const cache = JSON.parse(PropertiesService.getScriptProperties().getProperty(CACHE_KEY) || '{}');
+  const entry = cache[senderEmail];
+  if (entry && entry.hits >= CACHE_THRESHOLD) {
+    return entry.labels;
+  }
+  return null;
+}
+
+/**
+ * Updates the sender cache after a Claude classification.
+ * Increments hits if labels match, resets if they changed.
+ */
+function updateSenderCache(senderEmail, labels) {
+  const props = PropertiesService.getScriptProperties();
+  const cache = JSON.parse(props.getProperty(CACHE_KEY) || '{}');
+  const entry = cache[senderEmail];
+  const labelsKey = JSON.stringify(labels.slice().sort());
+
+  if (entry && JSON.stringify(entry.labels.slice().sort()) === labelsKey) {
+    entry.hits += 1;
+  } else {
+    cache[senderEmail] = { labels: labels, hits: 1 };
+  }
+
+  props.setProperty(CACHE_KEY, JSON.stringify(cache));
+}
+
+/**
+ * Clears the entire sender cache. Run after prompt changes.
+ */
+function clearSenderCache() {
+  PropertiesService.getScriptProperties().deleteProperty(CACHE_KEY);
+  console.log('Sender cache cleared.');
+}
+
+/**
+ * Removes a single sender from the cache.
+ * Usage: removeSenderFromCache('noreply@github.com')
+ */
+function removeSenderFromCache(email) {
+  const props = PropertiesService.getScriptProperties();
+  const cache = JSON.parse(props.getProperty(CACHE_KEY) || '{}');
+  const key = email.toLowerCase().trim();
+  if (cache[key]) {
+    delete cache[key];
+    props.setProperty(CACHE_KEY, JSON.stringify(cache));
+    console.log('Removed from cache: ' + key);
+  } else {
+    console.log('Not in cache: ' + key);
+  }
+}
+
+/**
+ * Prints the current sender cache contents for debugging.
+ */
+function printSenderCache() {
+  const cache = JSON.parse(PropertiesService.getScriptProperties().getProperty(CACHE_KEY) || '{}');
+  const entries = Object.entries(cache);
+  console.log('Sender cache: ' + entries.length + ' entries\n');
+  for (const [sender, entry] of entries) {
+    const status = entry.hits >= CACHE_THRESHOLD ? 'ACTIVE' : 'learning';
+    console.log(sender + ' → [' + entry.labels.join(', ') + '] (' + entry.hits + ' hits, ' + status + ')');
+  }
+}
 
 /**
  * Manual test function — classifies the 5 most recent unread emails.
