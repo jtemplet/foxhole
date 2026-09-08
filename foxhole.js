@@ -17,7 +17,7 @@ const CACHE_KEY = 'SENDER_CACHE';
 
 /**
  * Main entry point — called by time-driven trigger every 2 minutes.
- * Finds unread, unscanned emails and classifies them.
+ * Finds unread, unclassified threads and classifies them.
  */
 function classifyNewEmails() {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
